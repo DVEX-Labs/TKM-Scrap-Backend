@@ -84,7 +84,10 @@ Router.post("/adminProduct", getAdminProductsHandler);
 Router.post("/card", uploadProduct.single("file"), async (req, res) => {
   try {
     const { title, price } = req.body;
-    const imagePath = req.file ? "uploads/" + req.file.filename : "";
+    if (!req.file) {
+      return res.status(400).json({ message: "Image is required" });
+    }
+    const imagePath = "uploads/" + req.file.filename;
 
     const newProduct = new Product({
       title,
