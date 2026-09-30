@@ -6,6 +6,7 @@ const fs = require("fs");
 
 const Product = require("../../models/Product");
 const PickupOrder = require("../../models/PickupOrder");
+const Contact = require("../../models/Contact");
 
 // Ensure upload directories exist
 const uploadDir = path.join(__dirname, "../../public/uploads");
@@ -57,7 +58,10 @@ Router.post("/AdminLogin", (req, res) => {
 // Get Products (User side) - accepts both GET and POST
 const getProductsHandler = async (req, res) => {
   try {
-    const products = await Product.find().sort({ createdAt: -1 });
+    const products = await Product.find()
+      .select("title price category Image createdAt")
+      .sort({ createdAt: -1 })
+      .lean();
     return res.status(200).json({ carddetails: products });
   } catch (error) {
     console.error("Error fetching products:", error);
@@ -83,7 +87,7 @@ Router.post("/adminProduct", getAdminProductsHandler);
 // Add Product
 Router.post("/card", uploadProduct.single("file"), async (req, res) => {
   try {
-    const { title, price } = req.body;
+    const { title, price, category } = req.body;
     if (!req.file) {
       return res.status(400).json({ message: "Image is required" });
     }
@@ -92,6 +96,7 @@ Router.post("/card", uploadProduct.single("file"), async (req, res) => {
     const newProduct = new Product({
       title,
       price: Number(price),
+      category: category || "Others",
       Image: imagePath,
     });
 
@@ -102,7 +107,7 @@ Router.post("/card", uploadProduct.single("file"), async (req, res) => {
     });
   } catch (error) {
     console.error("Error adding product:", error);
-    return res.status(500).json({ message: "Failed to add product" });
+    return res.status(500).json({ message: "Failed to add product", error: error.message });
   }
 });
 
@@ -131,6 +136,7 @@ Router.get("/products/:id", async (req, res) => {
     return res.status(200).json({
       title: product.title,
       price: product.price,
+      category: product.category,
       Image: product.Image,
     });
   } catch (error) {
@@ -142,10 +148,11 @@ Router.get("/products/:id", async (req, res) => {
 // Update Product by ID
 Router.put("/products/:id", uploadProduct.single("image"), async (req, res) => {
   try {
-    const { title, price } = req.body;
+    const { title, price, category } = req.body;
     const updateData = {
       title,
       price: Number(price),
+      category: category || "Others",
     };
     if (req.file) {
       updateData.Image = "uploads/" + req.file.filename;
@@ -166,16 +173,96 @@ Router.put("/products/:id", uploadProduct.single("image"), async (req, res) => {
   }
 });
 
+// Contact form submission
+Router.post("/contact", async (req, res) => {
+  try {
+    const { name, phone, email, message, address, location, pincode } = req.body;
+    if (
+      !name?.trim() ||
+      !phone?.trim() ||
+      !message?.trim() ||
+      !address?.trim() ||
+      !location?.trim() ||
+      !pincode?.trim()
+    ) {
+      return res.status(400).json({
+        message: "Name, phone, address, location, pincode, and message are required",
+      });
+    }
+
+    const pincodeDigits = String(pincode).replace(/\D/g, "").slice(0, 6);
+    if (!/^\d{6}$/.test(pincodeDigits)) {
+      return res.status(400).json({ message: "Invalid pincode" });
+    }
+
+    const phoneDigits = String(phone).replace(/\D/g, "").slice(-10);
+    if (!/^[6-9]\d{9}$/.test(phoneDigits)) {
+      return res.status(400).json({ message: "Invalid Indian phone number" });
+    }
+
+    const trimmedEmail = email?.trim() || "";
+    if (trimmedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      return res.status(400).json({ message: "Invalid email address" });
+    }
+
+    const newContact = new Contact({
+      name: name.trim(),
+      phone: phoneDigits,
+      email: trimmedEmail,
+      address: address.trim(),
+      location: location.trim(),
+      pincode: pincodeDigits,
+      message: message?.trim() || "",
+    });
+
+    await newContact.save();
+    return res.status(200).json({
+      message: "Contact message saved successfully",
+      contact: newContact,
+    });
+  } catch (error) {
+    console.error("Error saving contact:", error);
+    return res.status(500).json({ message: "Failed to save contact message" });
+  }
+});
+
+// Get contact messages (Admin)
+Router.get("/admin/contacts", async (req, res) => {
+  try {
+    const contacts = await Contact.find().sort({ createdAt: -1 }).lean();
+    return res.status(200).json({ contactData: contacts });
+  } catch (error) {
+    console.error("Error fetching contacts:", error);
+    return res.status(500).json({ message: "Failed to fetch contact messages" });
+  }
+});
+
+// Delete contact message (Admin)
+Router.all("/admin/contact/delete", async (req, res) => {
+  try {
+    const id = req.query.id || req.body.id;
+    if (!id) {
+      return res.status(400).json({ message: "Contact ID is required" });
+    }
+    await Contact.findByIdAndDelete(id);
+    return res.status(200).json({ message: "Contact message deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting contact:", error);
+    return res.status(500).json({ message: "Failed to delete contact message" });
+  }
+});
+
 // Pickup Order submission
 Router.post("/pickup", uploadPickup.single("pickupImage"), async (req, res) => {
   try {
-    const { full_name, phone, address, city, country, state, zipcode } = req.body;
+    const { full_name, phone, address, location, city, country, state, zipcode } = req.body;
     const pickupImageFilename = req.file ? req.file.filename : "";
 
     const newOrder = new PickupOrder({
       full_name,
       phone,
       address,
+      location: location || "",
       city,
       country,
       state,

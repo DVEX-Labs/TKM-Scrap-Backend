@@ -13,6 +13,10 @@ const PickupOrderSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  location: {
+    type: String,
+    default: "",
+  },
   city: {
     type: String,
     required: true,
